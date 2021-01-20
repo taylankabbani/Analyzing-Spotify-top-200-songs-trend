@@ -1,0 +1,123 @@
+---
+title: "First Analysis"
+author: "Taylan Kabbani"
+date: "January 19, 2021"
+output: pdf_document
+---
+# Required Packages and data import
+```{r, warning = FALSE, message = FALSE}
+library(readxl)
+library(tidyverse)
+library(ggfortify)
+library(ggplot2)
+library(tsbox)
+library(imputeTS)
+library(cowplot)
+library(forecast)
+
+SpotifyData <- read_excel("Data/SpotifyData.xlsx")
+```
+
+
+```{r, warning = FALSE, message = FALSE}
+# Extracting specific song streams and return it as ts object
+FindSong <- function(SongName, Artist){
+  song_strams <- as.data.frame(SpotifyData %>% filter(song == SongName & Artist == Artist)
+                               %>% select(Date,Streams))
+  # ts_ts will convert df to time series
+  song_strams <- ts_ts(song_strams)
+  song_strams
+}
+```
+
+
+# Preliminary (exploratory) analysis.
+```{r, warning = FALSE, message = FALSE}
+song2 <- FindSong('Seni Dert Etmeler', 'Madrigal')
+
+song2_plt1 <- autoplot(song2) +
+  ggtitle('Song: Seni Dert Etmeler') +
+  xlab("Weeks") +
+  ylab("# Streams")
+
+# Imputation by Interpolation method is used to fill missing values. This method is appropriate for time series with strong trend. [ref1]
+
+ggplot_na_imputations(song2, na_interpolation(song2))
+
+song2 <- na_interpolation(song2)
+song2
+```
+
+```{r}
+# From the ACF plot we conclude that the data is non stationary having a strong trend and cyclical components and no seasonality
+ggAcf(song2)
+```
+
+```{r}
+# The time series we are dealing with that have been collected at regular intervals (weekly) that are less than the one year (42 weeks), therefore normal decomposition method will not be useful. 
+#It is possible to use a linear regression model to decompose a time series into trend and seasonal components, and then some smoothness assumptions on the seasonal component allow a decomposition with fewer than two full years of data. 
+
+# Approximating the seasonal pattern using Fourier terms with a few parameters.
+decompose_song2 <- tslm(song2 ~ trend + fourier(song2, 1))
+
+# Trend component as moving average function
+trend <- coef(decompose_song2)['(Intercept)'] +coef(decompose_song2)['trend']*seq_along(song2)
+
+e <- residuals(decompose_song2)
+# Additive model is used to decompose the time series data
+seasonality <- song2 - trend - e
+
+components <- cbind(
+  data = song2,
+  trend = trend,
+  seasonal = seasonality,
+  residuals =e
+  )
+
+autoplot(components,facet=TRUE)
+
+```
+```{r}
+# Remove the seasonality component from the data (Seasonly adjusted) as the purpose of our forecast is next week only and not interested in the seasonlay component.
+
+adjust_song2 <- song2 - seasonality
+autoplot(song2, series="Data") +
+  autolayer(adjust_song2, series="Seasonally adjusted")
+```
+
+# Choosing and fitting models
+```{r}
+# Data partitioning: leaving the last observation as test data
+train <- subset(adjust_song2, end = length(adjust_song2)-1)
+
+test <- subset(adjust_song2, start= length(adjust_song2), end = length(adjust_song2))
+
+```
+
+
+## Starting with Holt's linear trend method, as we anticpate a clear trend in the data this method is a good point to start with, setting to start the initial solution by taking the average values of the first few observations. We will let holt estimate the alpha and beta for now.
+```{r}
+#Holt's linear trend method
+fit <- holt(train, h =1,initial = 'optimal')
+ 
+# According to our MAPE we have about a 4.45% error rate and RMSE 61957.6
+round(accuracy(fit, test),2)
+
+fit$model
+# Residuals from the hult(alpha = 0.9999 an beta = 0.0001) model shows that all autocorrelations are within the threshold limits, indicating that the residuals are behaving like white noise. A Ljung-Box test test returns a large p-value, also suggesting that the residuals are white noise. In addition residulas are coming from normal destribution. so the model passes residuals check
+checkresiduals(fit)
+
+autoplot(fit) +
+  autolayer(fit, series="Holt's method", PI=FALSE) +
+  autolayer(adjust_song2, series="Data", PI=FALSE) +
+  ggtitle("Forecasts from Holt's method") + xlab("Weeks") +
+  ylab("Number of streams") +
+  guides(colour=guide_legend(title="Forecast"))
+```
+
+```{r}
+#e1 <- tsCV(adjust_song2, holt,damped=TRUE, h=1)
+#sqrt(mean(e1^2, na.rm=TRUE))
+
+```
+
