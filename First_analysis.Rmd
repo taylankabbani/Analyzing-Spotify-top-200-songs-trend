@@ -30,8 +30,8 @@ FindSong <- function(SongName, Artist){
 }
 ```
 
-
-# Preliminary (exploratory) analysis.
+# SOng2
+## Preliminary (exploratory) analysis.
 ```{r, warning = FALSE, message = FALSE}
 song2 <- FindSong('Seni Dert Etmeler', 'Madrigal')
 
@@ -64,6 +64,7 @@ decompose_song2 <- tslm(song2 ~ trend + fourier(song2, 1))
 trend <- coef(decompose_song2)['(Intercept)'] +coef(decompose_song2)['trend']*seq_along(song2)
 
 e <- residuals(decompose_song2)
+
 # Additive model is used to decompose the time series data
 seasonality <- song2 - trend - e
 
@@ -77,6 +78,7 @@ components <- cbind(
 autoplot(components,facet=TRUE)
 
 ```
+
 ```{r}
 # Remove the seasonality component from the data (Seasonly adjusted) as the purpose of our forecast is next week only and not interested in the seasonlay component.
 
@@ -85,39 +87,101 @@ autoplot(song2, series="Data") +
   autolayer(adjust_song2, series="Seasonally adjusted")
 ```
 
-# Choosing and fitting models
+# Data partitioning: leaving the last observation as test data, as we are only interested in forcasting only the next data point (short-term forcasting)
 ```{r}
-# Data partitioning: leaving the last observation as test data
-train <- subset(adjust_song2, end = length(adjust_song2)-1)
 
-test <- subset(adjust_song2, start= length(adjust_song2), end = length(adjust_song2))
+train <- subset(song2, end = length(song2)-1)
 
+test <- subset(song2, start= length(song2))
+test
 ```
 
 
-## Starting with Holt's linear trend method, as we anticpate a clear trend in the data this method is a good point to start with, setting to start the initial solution by taking the average values of the first few observations. We will let holt estimate the alpha and beta for now.
+## Starting with Holt's linear trend method, as we anticpate a clear trend in the data this method is a good point to start with, setting to start the initial solution by taking the average values of the first few observations. Holt's Method makes predictions for data with a trend using two smoothing parameters, alpha and beta which correspond to the level and trend components, respectively. Holt's method parameteres (alpha and beta) are beeing selected using grid search.
+
+### manually identify the optimal model parameters using grid search, using only train data
+```{r}
+Optimal_param <- function(data, show=FALSE){
+  train <- subset(data, end = length(data)-1)
+  validate <- subset(data, start= length(data))
+    # loop through a series of betas and alphas
+  param <- seq(.0001, 1, by = .001)
+  beta <- seq(.0001, 1, by = .001)
+  RMSE_beta <- NA
+  RMSE_alpha <- NA
+
+  for(i in seq_along(param)) {
+    fit_alpha <- holt(train, alpha = param[i], h = 1)
+    RMSE_alpha[i] <- accuracy(fit_alpha, validate)[2,2]
+    fit_beta <- holt(train, beta = param[i], h = 1)
+    RMSE_beta[i] <- accuracy(fit_beta, validate)[2,2]
+  }
+  
+  # convert to a data frame and idenitify min alpha and beta value
+  df <- data_frame(param, RMSE_alpha, RMSE_beta)
+  alpha.opt <- filter(df, RMSE_alpha == min(RMSE_alpha)) %>% select(param,RMSE_alpha)
+  beta.opt <- filter(df, RMSE_beta == min(RMSE_beta)) %>% select(param,RMSE_beta)
+  
+  # plot RMSE vs. alpha
+  if (show==TRUE) {
+      plot <- ggplot(df, aes(param,RMSE_alpha)) +
+        geom_line(color='blue')+
+        geom_line(aes(param,RMSE_beta),color = 'red')+
+        geom_point(data = alpha.opt, aes(param, RMSE_alpha), size = 3, color = "blue")+
+        geom_point(data = beta.opt, aes(param, RMSE_beta), size = 3, color = "Red")
+        
+      
+      return(list(plot,alpha.opt,beta.opt))} else{return(list(alpha.opt,beta.opt))}
+
+
+  
+}
+param <- Optimal_param(song2,show=FALSE)
+```
+
+
+
 ```{r}
 #Holt's linear trend method
-fit <- holt(train, h =1,initial = 'optimal')
- 
-# According to our MAPE we have about a 4.45% error rate and RMSE 61957.6
+Alpha <- as.numeric(param[[1]][1])
+Beta<- as.numeric(param[[2]][1])
+fit <- holt(train, alpha = Alpha, beta = Beta, h =1,initial = 'optimal')
+# Naive forecast for seasonality
+
+# model parameters
+Alpha = fit$model$fit$par[1]
+Beta = fit$model$fit$par[2]
+
+# Residual diagnostics
+e_check <- checkresiduals(fit)
+
+#The model passes residuals check:
+#1. The residuals are uncorrelated(There are a few significant spikes in the ACF)
+#2. The residuals have zero mean.
+#3. The variation of the residuals stays much the same across the historical data, apart from the one outlier.
+#4. Residuals may not be normal - the right tail seems a little too long.
+#5. The large positive residual is a result of the unexpected jump.
+#6. The model fails the Ljung-Box test. The model can still be used for forecasting. 
+
+# Check model accuracy: According to our MAPE we have about a 5.33 error rate and test-RMSE = 78250.48
 round(accuracy(fit, test),2)
 
-fit$model
-# Residuals from the hult(alpha = 0.9999 an beta = 0.0001) model shows that all autocorrelations are within the threshold limits, indicating that the residuals are behaving like white noise. A Ljung-Box test test returns a large p-value, also suggesting that the residuals are white noise. In addition residulas are coming from normal destribution. so the model passes residuals check
-checkresiduals(fit)
+# One-step prediction intervals
+
 
 autoplot(fit) +
   autolayer(fit, series="Holt's method", PI=FALSE) +
-  autolayer(adjust_song2, series="Data", PI=FALSE) +
+  autolayer(song2, series="Data", PI=FALSE) +
   ggtitle("Forecasts from Holt's method") + xlab("Weeks") +
   ylab("Number of streams") +
   guides(colour=guide_legend(title="Forecast"))
 ```
 
-```{r}
-#e1 <- tsCV(adjust_song2, holt,damped=TRUE, h=1)
-#sqrt(mean(e1^2, na.rm=TRUE))
+
+```{r, warning = FALSE, message = FALSE}
+fit$model
+
 
 ```
+
 
