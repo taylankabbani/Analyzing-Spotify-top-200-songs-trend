@@ -210,7 +210,7 @@ autoplot(fit) +
 ```
 
 
-## By letting ETS automaticly selecting the model, we get ETS(M,A,N), Holt's linear method with multiplicative errors.
+## By letting ETS automaticly selecting the model, we get ETS(M,A,N), Holt's linear method with multiplicative errors. This model is assumed "optimal" because it minimizes RMSE, AIC, and BIC on the training data set, but does not necessarily minimize prediction errors on the test set.
 ```{r, warning = FALSE, message = FALSE}
 fit2 <- ets(train, model='ZZZ')
 fit2
@@ -249,4 +249,9 @@ autoplot(pred) +
 
 
 
-# Method 2 : ARIMA
+# Method 2 :  Non-seasonal ARIMA models
+## Because we have a large number of time-series to work with, auto.arime() will be used to select the model rather than manually investigate the ACF and PACF to choose Arima's coefficient, to force auto.arime() to investigate larger set of models by using the arguments stepwise=FALSE and approximation=FALSE.
+```{r}
+
+```
+
