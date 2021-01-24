@@ -22,11 +22,11 @@ SpotifyData <- read_excel("Data/SpotifyData.xlsx")
 ```{r, warning = FALSE, message = FALSE}
 # Extracting specific song streams and return it as ts object
 FindSong <- function(SongName, Artist){
-  song_strams <- as.data.frame(SpotifyData %>% filter(song == SongName & Artist == Artist)
+  song_streams <- as.data.frame(SpotifyData %>% filter(song == SongName & Artist == Artist)
                                %>% select(Date,Streams))
   # ts_ts will convert df to time series
-  song_strams <- ts_ts(song_strams)
-  song_strams
+  song_streams <- ts_ts(song_streams)
+  song_streams
 }
 ```
 
@@ -202,7 +202,7 @@ print(paste('80% prediction intervals: ', round(fit$upper[1],3),'-' , round(fit$
 
 
 autoplot(fit) +
-  autolayer(fit, series="Holt's method", PI=FALSE) +
+  autolayer(fit, series="Holt's method with damped trend", PI=FALSE) +
   autolayer(song2, series="Data", PI=FALSE) +
   ggtitle("Forecasts from Holt's method") + xlab("Weeks") +
   ylab("Number of streams") +
@@ -250,8 +250,45 @@ autoplot(pred) +
 
 
 # Method 2 :  Non-seasonal ARIMA models
-## Because we have a large number of time-series to work with, auto.arime() will be used to select the model rather than manually investigate the ACF and PACF to choose Arima's coefficient, to force auto.arime() to investigate larger set of models by using the arguments stepwise=FALSE and approximation=FALSE.
+## Because we have a large number of time-series to work with, auto.arime() will be used to select the model rather than manually investigate the ACF and PACF to choose Arima's coefficient, to force auto.arime() to investigate larger set of models by using the arguments stepwise=FALSE and approximation=FALSE. We also use the argument seasonal=FALSE to prevent it searching for seasonal ARIMA models
 ```{r}
 
+# Use auto.arima to select a model.
+(fit3 <- auto.arima(train, seasonal = FALSE, approximation = FALSE, stepwise = FALSE))
+
+# Residual diagnostics
+e_check <- checkresiduals(fit3)
+
+#The model passes residuals check:
+#1. The residuals are uncorrelated
+#2. The residuals have zero mean.
+#3. The variation of the residuals stays much the same across the historical data, apart from the one outlier.
+#4. Residuals may not be normal - the right tail seems a little too long.
+#5. The large positive residual is a result of the unexpected jump.
+#6. The model successfully passed the Ljung-Box test. Residuals are weight noise
+
+# one-step ahead forecast
+pred <- forecast(fit3, h=1)
+
+# Check model accuracy: According to our MAPE we have about a 9.40 error rate and test-RMSE = 137948.0
+round(accuracy(pred, test),2)
+
+# One-step prediction intervals
+print(paste('80% prediction intervals: ', round(pred$upper[1],3),'-' , round(pred$lower[1],3)))
+
+autoplot(pred) +
+  autolayer(pred, series="ARIMA(p,d,q)", PI=FALSE) +
+  autolayer(song2, series="Data", PI=FALSE) +
+  ggtitle("Forecasts from ARIMA(p,d,q)") + xlab("Weeks") +
+  ylab("Number of streams") +
+  guides(colour=guide_legend(title="Forecast"))
+```
+
+
+
+```{r}
+train %>% 
+  splinef(lambda = 0, h=1) %>% 
+  autoplot()
 ```
 
