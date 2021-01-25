@@ -15,7 +15,7 @@ library(imputeTS)
 library(cowplot)
 library(forecast)
 
-SpotifyData <- read_excel("Data/SpotifyData.xlsx")
+SpotifyData <- read_excel("Data/SpotifyData_full.xlsx")
 ```
 
 
@@ -287,8 +287,6 @@ autoplot(pred) +
 
 
 ```{r}
-train %>% 
-  splinef(lambda = 0, h=1) %>% 
-  autoplot()
+
 ```
 
