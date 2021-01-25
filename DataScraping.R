@@ -28,7 +28,7 @@ makeURL <- function(){
   fixed_part <- 'https://spotifycharts.com/regional/tr/weekly/'
   
   # Define the Range for Our dates
-  timevalues <- seq(as.Date("2016-12-23"), as.Date("2021-01-15"), by = "week")
+  timevalues <- seq(as.Date("2016-12-23"), as.Date("2021-01-22"), by = "week")
   
   for (i in 1:(length(timevalues)-1)) {
     date <- paste(timevalues[i], timevalues[i+1],sep = '--')
