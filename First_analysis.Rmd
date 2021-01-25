@@ -169,7 +169,7 @@ print(paste('80% prediction intervals: ', round(fit$upper[1],3),'-' , round(fit$
 
 
 autoplot(fit) +
-  autolayer(fit, series="Holt's method", PI=FALSE) +
+  autolayer(fitted(fit), series="Holt's method", PI=FALSE) +
   autolayer(song2, series="Data", PI=FALSE) +
   ggtitle("Forecasts from Holt's method") + xlab("Weeks") +
   ylab("Number of streams") +
@@ -202,7 +202,7 @@ print(paste('80% prediction intervals: ', round(fit$upper[1],3),'-' , round(fit$
 
 
 autoplot(fit) +
-  autolayer(fit, series="Holt's method with damped trend", PI=FALSE) +
+  autolayer(fitted(fit), series="Holt's method with damped trend", PI=FALSE) +
   autolayer(song2, series="Data", PI=FALSE) +
   ggtitle("Forecasts from Holt's method") + xlab("Weeks") +
   ylab("Number of streams") +
@@ -239,7 +239,7 @@ round(accuracy(pred, test),2)
 print(paste('80% prediction intervals: ', round(pred$upper[1],3),'-' , round(pred$lower[1],3)))
 
 autoplot(pred) +
-  autolayer(pred, series="ETS(M,A,N)", PI=FALSE) +
+  autolayer(fitted(fit2), series="ETS(M,A,N)", PI=FALSE) +
   autolayer(song2, series="Data", PI=FALSE) +
   ggtitle("Forecasts from ETS(M,A,N)") + xlab("Weeks") +
   ylab("Number of streams") +
@@ -277,16 +277,75 @@ round(accuracy(pred, test),2)
 print(paste('80% prediction intervals: ', round(pred$upper[1],3),'-' , round(pred$lower[1],3)))
 
 autoplot(pred) +
-  autolayer(pred, series="ARIMA(p,d,q)", PI=FALSE) +
+  autolayer(fitted(fit3), series="ARIMA(p,d,q)", PI=FALSE) +
   autolayer(song2, series="Data", PI=FALSE) +
   ggtitle("Forecasts from ARIMA(p,d,q)") + xlab("Weeks") +
   ylab("Number of streams") +
   guides(colour=guide_legend(title="Forecast"))
 ```
 
-
-
+# Method 3: Exponential regression using trend as predictor
 ```{r}
+fit.exp <- tslm(train ~ trend, lambda = 0)
 
+
+# Residual diagnostics
+checkresiduals(fit.exp)
+#The model passes residuals check:
+#1. The residuals are uncorrelated(There are a few significant spikes in the ACF)
+#2. The residuals have almost zero mean.
+#3. The variation of the residuals stays much the same across the historical data, apart from the one outlier.
+#4. Residuals may not be normal - the right tail seems a little too long.
+#5. The large positive residual is a result of the unexpected jump.
+#6. The model fails the Ljung-Box test. The model can still be used for forecasting. 
+
+# one-step ahead forecast
+fcasts.exp <- forecast(fit.exp, h = 1)
+
+# Check model accuracy: 
+round(accuracy(fcasts.exp, test),2)
+
+# One-step prediction intervals
+print(paste('80% prediction intervals: ', round(fcasts.exp$upper[1],3),'-' , round(fcasts.exp$lower[1],3)))
+
+
+
+autoplot(fcasts.exp) +
+  autolayer(fitted(fit.exp), series="Exponential", PI=FALSE) +
+  autolayer(song2, series="Data", PI=FALSE) +
+  ggtitle("Forecasts from Exponential") + xlab("Weeks") +
+  ylab("Number of streams") +
+  guides(colour=guide_legend(title="Forecast"))
 ```
+
+# Method 4: Dynamic regression
+```{r}
+# useful predictors:
+#1. The rank of the song in the top 200s
+FindRank<- function(SongName, Artist){
+  song_Rank <- as.data.frame(SpotifyData %>% filter(song == SongName & Artist == Artist) %>% select(Date,Rank))}
+
+#Converting to time-series and impute missing values
+song2_Rank <- na_interpolation(ts_ts(FindRank('Seni Dert Etmeler', 'Madrigal')))
+
+# Frcasting the Rank 
+train_prd <- subset(song2_Rank, end = length(song2_Rank)-1)
+
+test_pred <- subset(song2_Rank, start= length(song2_Rank))
+
+autoplot(song2_Rank)
+```
+
+# We can clearly see that there is a non-linear relationship between the rank and the number of streams
+```{r}
+song2_reg <- cbind('streams'= song2, 'rank'=song2_Rank)
+song2_reg %>%
+  as.data.frame() %>%
+  ggplot(aes(x=streams, y=rank)) +
+    ylab("Weekly rank in the top 200") +
+    xlab("Streams per week") +
+    geom_point() +
+    geom_smooth(method="", se=FALSE)
+```
+
 
