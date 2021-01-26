@@ -110,5 +110,5 @@ Rankfcast <- function(SongName, ArtistName, show_ImputedValues =FALSE, study_e =
 }
 
 
-#rank_pred <- Rankfcast(SongName = 'Seni Dert Etmeler', ArtistName = 'Madrigal', 
-                       #show_ImputedValues = F, study_e = F, BestModel_show = F)
+# rank_pred <- Rankfcast(SongName = 'Rauf', ArtistName = 'Rauf & Faik',
+# show_ImputedValues = F, study_e = F, BestModel_show = F)
