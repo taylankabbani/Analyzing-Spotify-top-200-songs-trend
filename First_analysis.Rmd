@@ -21,8 +21,8 @@ SpotifyData <- read_excel("Data/SpotifyData_full.xlsx")
 
 ```{r, warning = FALSE, message = FALSE}
 # Extracting specific song streams and return it as ts object
-FindSong <- function(SongName, Artist){
-  song_streams <- as.data.frame(SpotifyData %>% filter(song == SongName & Artist == Artist)
+FindSong <- function(SongName, ArtistName){
+  song_streams <- as.data.frame(SpotifyData %>% filter(song == SongName & Artist == ArtistName)
                                %>% select(Date,Streams))
   # ts_ts will convert df to time series
   song_streams <- ts_ts(song_streams)
