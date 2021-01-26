@@ -33,11 +33,12 @@ counts_df <- cbind('song'= data.frame('song'=songs_lis),data.frame('artist'= art
 
 # Saving songs names for each category
 
-V_short <- counts_df %>% filter(counts <= 10) %>% select(song, artist) %>% 
-  write.xlsx2('Vshort_ts.xlsx',sheetName = "Sheet1",col.names = TRUE, row.names=FALSE)
- 
-short <- counts_df %>% filter(counts > 10 & counts <= 54) %>% select(song, artist) %>% 
-    write.xlsx2('short_ts.xlsx',sheetName = "Sheet1",col.names = TRUE, row.names=FALSE)
-
-long <- counts_df %>% filter(counts > 54) %>% select(song,artist) %>% 
-  write.xlsx2('long_ts.xlsx',sheetName = "Sheet1",col.names = TRUE, row.names=FALSE)
+# V_short <- counts_df %>% filter(counts <= 10) %>% select(song, artist) %>% 
+#   write.xlsx2('Vshort_ts.xlsx',sheetName = "Sheet1",col.names = TRUE, row.names=FALSE)
+#  
+# short <- counts_df %>% filter(counts > 10 & counts <= 54) %>% select(song, artist) %>% 
+#     write.xlsx2('short_ts.xlsx',sheetName = "Sheet1",col.names = TRUE, row.names=FALSE)
+# 
+# long <- counts_df %>% filter(counts > 54) %>% select(song,artist) %>% 
+#   write.xlsx2('long_ts.xlsx',sheetName = "Sheet1",col.names = TRUE, row.names=FALSE)
+# top100 <- counts_df[1:100,1:3] %>% write.xlsx2('top100.xlsx',sheetName = "Sheet1",col.names = TRUE, row.names=FALSE)
