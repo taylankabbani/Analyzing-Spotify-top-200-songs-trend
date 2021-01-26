@@ -21,11 +21,11 @@ SpotifyData <- read_excel("Data/SpotifyData_full.xlsx")
 
 ```{r, warning = FALSE, message = FALSE}
 # Extracting specific song streams and return it as ts object
-FindSong <- function(SongName, Artist){
-  song_Rank <- as.data.frame(SpotifyData %>% filter(song == SongName & Artist == Artist) %>% select(Date,Rank))
+FindSong <- function(SongName, ArtistName){
+  song_Rank <- as.data.frame(SpotifyData %>% filter(song == SongName & Artist == ArtistName) %>% select(Date,Rank))
 
   # ts_ts will convert df to time series
-  song_Rank <- ts_ts(song_Rank)
+  song_Rank <- ts_ts(ts_c(song_Rank))
   song_Rank
 }
 ```
@@ -34,18 +34,18 @@ FindSong <- function(SongName, Artist){
 # SOng2
 ## Preliminary (exploratory) analysis.
 ```{r, warning = FALSE, message = FALSE}
-song2 <- FindSong('Seni Dert Etmeler', 'Madrigal')
+song2 <- FindSong('Ölüme İnat', 'Hidra')
 
-song2_plt1 <- autoplot(song2) +
-  ggtitle('Song: Seni Dert Etmeler') +
-  xlab("Weeks") +
-  ylab("# Streams")
+# song2_plt1 <- autoplot(song2) +
+#   ggtitle('Song: Seni Dert Etmeler') +
+#   xlab("Weeks") +
+#   ylab("# Streams")
 
 # Imputation by Interpolation method is used to fill missing values. This method is appropriate for time series with strong trend. [ref1]
 
-ggplot_na_imputations(song2, na_interpolation(song2))
+#ggplot_na_imputations(song2, na_interpolation(song2))
 
-song2 <- na_interpolation(song2)
+#song2 <- na_interpolation(song2)
 song2
 ```
 
@@ -79,7 +79,12 @@ components <- cbind(
 autoplot(components,facet=TRUE)
 
 ```
+```{r}
 
+train <- subset(song2, end = length(song2)-1)
+
+test <- subset(song2, start= length(song2))
+```
 # To predict the rank of a song in the top 200 top songs, I use a simple forecasting methods:
 
 #Method 1: Average method
@@ -88,11 +93,58 @@ fit.avg <- meanf(train, h=1)
 
 
 checkresiduals(fit.avg)
+
+round(accuracy(fit.avg, test),2)
+
+autoplot(fit.avg) +
+  autolayer(fitted(fit.avg), series="Average method", PI=FALSE) +
+  autolayer(song2, series="Data", PI=FALSE) +
+  ggtitle("Forecasts from Average method") + xlab("Weeks") +
+  ylab("Rank") +
+  guides(colour=guide_legend(title="Forecast"))
 ```
 
 # Random Walk(Naive forecast)
 ```{r}
-rwf(train, 1)
-test
+fit.rwk <- rwf(train, 1)
+
+checkresiduals(fit.rwk)
+
+round(accuracy(fit.rwk, test),2)
+
+autoplot(fit.rwk) +
+  autolayer(fitted(fit.rwk), series="Random Walk", PI=FALSE) +
+  autolayer(song2, series="Data", PI=FALSE) +
+  ggtitle("Forecasts from Random Walk") + xlab("Weeks") +
+  ylab("Rank") +
+  guides(colour=guide_legend(title="Forecast"))
+```
+# But its very clear that the data have an upward/down trend and a decision must be made to modify the naive model! Our technique can be adjusted to take trend into consideration by adding the difference between this period and the last period.
+```{r}
+fit.rwkd <- rwf(train, 1,lambda = 0)
+
+checkresiduals(fit.rwkd)
+
+round(accuracy(fit.rwkd, test),2)
+
+autoplot(fit.rwkd) +
+  autolayer(fitted(fit.rwkd), series="Random Walk", PI=FALSE) +
+  autolayer(song2, series="Data", PI=FALSE) +
+  ggtitle("Forecasts from Random Walk") + xlab("Weeks") +
+  ylab("Rank") +
+  guides(colour=guide_legend(title="Forecast"))
 ```
 
+```{r}
+fit.holt <- holt(train, h=1)
+checkresiduals(fit.holt)
+
+round(accuracy(fit.holt, test),2)
+
+autoplot(fit.holt) +
+  autolayer(fitted(fit.holt), series="holt", PI=FALSE) +
+  autolayer(song2, series="Data", PI=FALSE) +
+  ggtitle("Forecasts from Random Walk") + xlab("Weeks") +
+  ylab("Rank") +
+  guides(colour=guide_legend(title="Forecast"))
+```
