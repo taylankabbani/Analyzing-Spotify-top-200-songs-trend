@@ -1,9 +1,4 @@
-#title: "DataScraping"
-#author: "Taylan Kabbani"
-#date: "January 17, 2021"
-#output: pdf_document
 
-  
 # Required packages:
 library(rvest)
 library(tidyverse)

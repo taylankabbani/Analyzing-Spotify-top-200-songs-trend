@@ -13,6 +13,7 @@ library(imputeTS)
 library(cowplot)
 library(forecast)
 library(dplyr)
+library(xlsx)
 #Import data
 SpotifyData <- read_excel("Data/SpotifyData_full.xlsx")
 
@@ -34,61 +35,95 @@ Rankfcast <- function(SongName, ArtistName, show_ImputedValues =FALSE, study_e =
 
   fit.avg <- meanf(train, h=1)
   RMSE.avg =round(accuracy(fit.avg, test),2)[2,2]
-  fit.rwk <- rwf(train, 1)
+  fit.rwk <- rwf(train, h=1)
   RMSE.rwk = round(accuracy(fit.rwk, test),2)[2,2]
-  fit.rwkd <- rwf(train, 1, drift = TRUE)
+  fit.rwkd <- rwf(train, h=1, drift = TRUE)
   RMSE.rwkd =round(accuracy(fit.rwkd, test),2)[2,2]
   
-  #manually identify the optimal holt alpha 
-  Optimal_param <- function(data){
+  #manually identify the optimal holt alpha and beta
+  Optimal_param <- function(data, show=FALSE){
     train <- subset(data, end = length(data)-1)
     validate <- subset(data, start= length(data))
     # loop through a series of betas and alphas
     param <- seq(.0001, 1, by = .001)
+    RMSE_beta <- NA
     RMSE_alpha <- NA
+    
     for(i in seq_along(param)) {
       fit_alpha <- holt(train, alpha = param[i], h = 1)
       RMSE_alpha[i] <- accuracy(fit_alpha, validate)[2,2]
+      fit_beta <- holt(train, beta = param[i], h = 1)
+      RMSE_beta[i] <- accuracy(fit_beta, validate)[2,2]
     }
     
     # convert to a data frame and idenitify min alpha and beta value
-    df_1 <- data_frame(param, RMSE_alpha)
-    alpha.opt <- filter(df_1, RMSE_alpha == min(RMSE_alpha)) %>% select(param,RMSE_alpha)
+    df <- data_frame(param, RMSE_alpha, RMSE_beta)
+    alpha.opt <- filter(df, RMSE_alpha == min(RMSE_alpha)) %>% select(param,RMSE_alpha)
+    beta.opt <- filter(df, RMSE_beta == min(RMSE_beta)) %>% select(param,RMSE_beta)
+    
     # plot RMSE vs. alpha
-    return(alpha.opt)}
+    if (show==TRUE) {
+      plot <- ggplot(df, aes(param,RMSE_alpha)) +
+        geom_line(color='blue')+
+        geom_line(aes(param,RMSE_beta),color = 'red')+
+        geom_point(data = alpha.opt, aes(param, RMSE_alpha), size = 3, color = "blue")+
+        geom_point(data = beta.opt, aes(param, RMSE_beta), size = 3, color = "Red")
+      
+      
+      return(list(plot,alpha.opt,beta.opt))} else{return(list(alpha.opt,beta.opt))}
+    
+    
+    
+  }
   
   param <- Optimal_param(song_Rank)
   Alpha <- as.numeric(param[[1]][1])
+  Beta<- as.numeric(param[[2]][1])
+  ####################################Models#############
+  #Fitting holt model with optimal Alpha
+  fit.holtA <- holt(train, h=1, alpha = Alpha, damped = F,initial = 'optimal')
+  RMSE.holtA = round(accuracy(fit.holtA, test),2)[2,2]
   
-  #Fitting holt model
-  fit.holt <- holt(train, 1, alpha = Alpha, damped = F)
-  RMSE.holt = round(accuracy(fit.holt, test),2)[2,2]
-  #Fitting holt model with damped trend
-  fit.holtd <- holt(train, 1, alpha = Alpha, damped = T)
-  RMSE.holtd = round(accuracy(fit.holtd, test),2)[2,2]
+  #Fitting holt model with optimal Alpha and damped trend
+  fit.holtAd <- holt(train, h=1, alpha = Alpha, damped = T,initial = 'optimal')
+  RMSE.holtAd = round(accuracy(fit.holtAd, test),2)[2,2]
+  
+  #Fitting holt model with optimal Beta
+  fit.holtB <- holt(train, h=1, beta = Beta, damped = F,initial = 'optimal')
+  RMSE.holtB = round(accuracy(fit.holtB, test),2)[2,2]
+  
+  #Fitting holt model with optimal Alpha and damped trend
+  fit.holtBd <- holt(train, h=1, beta = Beta, damped = T,initial = 'optimal')
+  RMSE.holtBd = round(accuracy(fit.holtBd, test),2)[2,2]
+  
   
   # Forecast future Rank
   fcast.model <- NA
   
-  df <- data.frame(model = c('avg', 'rwk', 'rwkd', 'holt','holtd'), 
-                   RMSE = c(RMSE.avg, RMSE.rwk, RMSE.rwkd,RMSE.holt, RMSE.holtd))
+  df <- data.frame(model = c('avg', 'rwk', 'rwkd', 'holtA','holtAd','holtB', 'holtBd'), 
+                   RMSE = c(RMSE.avg, RMSE.rwk, RMSE.rwkd, RMSE.holtA, RMSE.holtAd, RMSE.holtB, RMSE.holtBd))
 
   Best.Model <- filter(df, RMSE == min(RMSE)) %>% select(model)
 
   if (Best.Model == 'avg') {Best.Model <- meanf(train, h=1) 
                             fcast.Model <- meanf(song_Rank, h=1)}
   
-  else if (Best.Model == 'rwk') {Best.Model <- rwf(train, 1) 
-                                  fcast.Model <- rwf(song_Rank, 1)}
+  else if (Best.Model == 'rwk') {Best.Model <- rwf(train, h=1) 
+                                  fcast.Model <- rwf(song_Rank, h=1)}
   
-  else if (Best.Model == 'rwkd') {Best.Model <- rwf(train, 1, drift = TRUE) 
-                                  fcast.Model <- rwf(song_Rank, 1, drift = TRUE)}
+  else if (Best.Model == 'rwkd') {Best.Model <- rwf(train, h=1, drift = TRUE) 
+                                  fcast.Model <- rwf(song_Rank, h=1, drift = TRUE)}
   
-  else if (Best.Model == 'holt') {Best.Model <- holt(train, 1, alpha = Alpha, damped = F)
-                                  fcast.Model <- holt(song_Rank, 1, alpha = Alpha, damped = F)}
+  else if (Best.Model == 'holtA') {Best.Model <- holt(train, h=1, alpha = Alpha, damped = F,initial = 'optimal')
+                                  fcast.Model <- holt(song_Rank, h=1, alpha = Alpha, damped = F,initial = 'optimal')}
   
-  else if (Best.Model == 'holtd'){Best.Model <- holt(train, 1, alpha = Alpha, damped = T)
-                                  fcast.Model <- holt(song_Rank, 1, alpha = Alpha, damped = T)}
+  else if (Best.Model == 'holtAd'){Best.Model <- holt(train, h=1, alpha = Alpha, damped = T,initial = 'optimal')
+                                  fcast.Model <- holt(song_Rank, h=1, alpha = Alpha, damped = T,initial = 'optimal')}
+  
+  else if (Best.Model == 'holtB'){Best.Model <- holt(train, h=1, beta = Beta, damped = F,initial = 'optimal')
+                                  fcast.Model <- holt(song_Rank, h=1, beta = Beta, damped = F,initial = 'optimal')}
+  else if (Best.Model == 'holtBd'){Best.Model <- holt(train, h=1, beta = Beta, damped = T,initial = 'optimal')
+                                  fcast.Model <- holt(song_Rank, h=1, beta = Beta, damped = T,initial = 'optimal')}
 
   # Residuals of the best model
   if (study_e == TRUE) {checkresiduals(Best.Model)}
@@ -112,3 +147,26 @@ Rankfcast <- function(SongName, ArtistName, show_ImputedValues =FALSE, study_e =
 
 # rank_pred <- Rankfcast(SongName = 'Rauf', ArtistName = 'Rauf & Faik',
 # show_ImputedValues = F, study_e = F, BestModel_show = F)
+
+vshort_songs <- read_excel("Data/Vshort_ts.xlsx")
+short_songs <- read_excel("Data/short_ts.xlsx")
+long_songs <- read_excel("Data/long_ts.xlsx")
+
+# Note: there are 18 songs that could not be handled by the pipeline because of lacking regular pattern
+songs <- rbind(vshort_songs,short_songs,long_songs)
+
+Rank_fcasts <- list()
+
+# Iterate over each song using the Rankfcast pipeline
+for (i in 1:dim(songs)[1]) {
+  song <- as.character(songs[i,1])
+  artist <- as.character(songs[i,2])
+  print(i)
+  Rank_fcasts[[i]] <- Rankfcast(song,artist)
+  print(Rank_fcasts[[i]])
+}
+
+# Convert to dataframe
+Rank_fcasts <- as.data.frame(do.call(rbind,Rank_fcasts))
+names(Rank_fcasts) = c('song','Artist','Model','train_pred','test', 'RMSE','Fcast')
+# write.xlsx2(Rank_fcasts,'Top200Prediction.xlsx',sheetName = "Sheet1",col.names = TRUE, row.names=FALSE)

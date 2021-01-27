@@ -28,24 +28,22 @@ FindSong <- function(SongName, ArtistName){
   song_Rank <- ts_ts(ts_c(song_Rank))
   song_Rank
 }
+song2 <- FindSong('Seni Dert Etmeler', 'Madrigal')
+song2
 ```
 
 
 # SOng2
 ## Preliminary (exploratory) analysis.
 ```{r, warning = FALSE, message = FALSE}
-song2 <- FindSong('Ölüme İnat', 'Hidra')
+song2 <- FindSong('Seni Dert Etmeler', 'Madrigal')
 
-# song2_plt1 <- autoplot(song2) +
-#   ggtitle('Song: Seni Dert Etmeler') +
-#   xlab("Weeks") +
-#   ylab("# Streams")
 
 # Imputation by Interpolation method is used to fill missing values. This method is appropriate for time series with strong trend. [ref1]
 
-#ggplot_na_imputations(song2, na_interpolation(song2))
+ggplot_na_imputations(song2, na_interpolation(song2))
 
-#song2 <- na_interpolation(song2)
+song2 <- na_interpolation(song2)
 song2
 ```
 
@@ -78,7 +76,9 @@ components <- cbind(
 
 autoplot(components,facet=TRUE)
 
+
 ```
+
 ```{r}
 
 train <- subset(song2, end = length(song2)-1)
@@ -121,7 +121,7 @@ autoplot(fit.rwk) +
 ```
 # But its very clear that the data have an upward/down trend and a decision must be made to modify the naive model! Our technique can be adjusted to take trend into consideration by adding the difference between this period and the last period.
 ```{r}
-fit.rwkd <- rwf(train, 1,lambda = 0)
+fit.rwkd <- rwf(train, 1,drift = T)
 
 checkresiduals(fit.rwkd)
 
