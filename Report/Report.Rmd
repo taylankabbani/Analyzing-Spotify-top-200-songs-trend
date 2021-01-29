@@ -1,0 +1,315 @@
+---
+title: "Spotify Songs Analysis & Forecast"
+author: "Taylan Kabbani"
+date: "January 27, 2021"
+output: 
+  pdf_document:
+    extra_dependencies: ["hyperref","xcolor"]
+---
+\section{Problem Definition} 
+\begin{itemize}
+\item \textbf{Project Objective:} Analyzing the trends of Turkish songs on \textit{Spotify} and forecasting the popularity of songs for the following week.
+\item \textbf{Determining what to forecast:}
+\begin{enumerate}
+\item Point forecasts for the number of weekly streams of top 100 songs in week 01/07/2021.
+\item predict whether specific 200 songs (in week 01/07/2021) will be in the top 200 list in the list of of 200 top songs of week 28/01/2021.
+\end{enumerate}
+
+
+\item \textbf{Data:} \textit{Spotify} publishes weekly number of streams for each song in the top 200 list for each county at spotifycharts.com. Here, country will be set to Turkey as we are only interested in Turkish songs.
+
+\item \textbf{Task Difficulty:} Due to low forecast accuracy, a large number of songs, shortening life cycle of songs, and sudden and frequent changes in music tastes of the society, the task is considered a difficult one.
+\item \textbf{Programming Language:} R programming language is being used in this project. Project's files and code scripts can be found on this \href{https://github.com/taylankabbani/Analyzing-Spotify-top-200-songs-trend}{\textcolor{red}{Github repository}}
+\end{itemize}
+
+\section{Gathering information}
+\textit{Spotify} publishes weekly and daily streams for each song in the top 200 to be downloaded on their website. However, manually downloading this data for each week is tedious and time-consuming since we want to retrieve all weeks since 2016 up until now. Using \textit{rvest} package in R, we can scrape the website and retrieve the data we want. \href{https://github.com/taylankabbani/Analyzing-Spotify-top-200-songs-trend/blob/master/DataScraping.R}{\textcolor{blue}{DataScraping.R}} file does the following:
+\begin{enumerate}
+\item Create a URL sequence function that will feed our scraper the right directions to find WHERE the data is.
+\item Create a scraper function that will find WHAT attributes we want into a scrape.
+\item Data Wrangling to reshape the data into a tibble using \textit{dplyr and tibble} packages.
+\item Download the data as .xlsx file. (see file \href{https://github.com/taylankabbani/Analyzing-Spotify-top-200-songs-trend/blob/master/Data/SpotifyData_full.xlsx}{\textcolor{blue}{here}})
+\end{enumerate}
+
+Since our time-series (songs) does not share the same time horizon, I divide the top 200 songs of week 07/01/2021 into three groups based on the number of data points available to retrieve in the past (see \href{https://github.com/taylankabbani/Analyzing-Spotify-top-200-songs-trend/blob/master/Data%20Wrangling.R}{\textcolor{blue}{Data Wrangling.R}}:
+\begin{enumerate}
+\item Very short time-series: <= 10 weeks
+\item Short time-series: > 10 weeks but <= 54 weeks (less than a year)
+\item Long time-series: > 54 weeks (more than one year)
+\end{enumerate}
+Also the name of the song and the Artist of the top 100 songs for the stream forecasts are being saved.
+
+\section{Rank Forecast}
+\subsection{Preliminary (exploratory) analysis}
+Because we have many time-series, I examined few songs from each group of the three groups I created (explained in the previous section) to get a better understanding of the data patterns, check if there is a significant trend? is seasonality important? is there evidence of the presence of business cycles?. The following is an example of the analysis performed on one song from short time-series group.
+
+
+```{r, warning = FALSE, message = FALSE}
+library(readxl)
+library(tidyverse)
+library(ggfortify)
+library(ggplot2)
+library(tsbox)
+library(imputeTS)
+library(cowplot)
+library(forecast)
+
+SpotifyData <- read_excel("Data/SpotifyData_full.xlsx")
+
+# Extracting specific song streams and return it as ts object
+FindSong <- function(SongName, ArtistName){
+  song_Rank <- as.data.frame(SpotifyData 
+                             %>% filter(song == SongName & Artist == ArtistName) 
+                             %>% select(Date,Rank))
+
+  # ts_ts will convert df to time series
+  song_Rank <- ts_ts(ts_c(song_Rank))
+  song_Rank
+}
+song2 <- FindSong('Seni Dert Etmeler', 'Madrigal')
+song2
+```
+For some songs there are missing values for some weeks in the time series, as in the song above, to handle missing values \textit{Imputation by Interpolation} method is used to fill missing values. This method is appropriate for time series with strong trend as we are expecting a trend in our time-series.
+```{r,echo=FALSE}
+ggplot_na_imputations(song2, na_interpolation(song2))
+
+song2 <- na_interpolation(song2)
+```
+In our time-series data, the song streams/rank has been recorded at regular intervals (weekly), however for many of these songs (short and very short groups) have less than one year (42 weeks for the example here), therefore normal decomposition methods will not be useful since time series should have data points not less than two periods. It is possible to use a linear regression model to decompose a time series into a trend and seasonal components, and then some smoothness assumptions on the seasonal component allow a decomposition with fewer than two full years of data.
+ 
+```{r out.width = "70%"}
+# Approximating the seasonal pattern using Fourier terms with a few parameters.
+decompose_song2 <- tslm(song2 ~ trend + fourier(song2, 1))
+# Trend component as moving average function
+trend <- coef(decompose_song2)['(Intercept)'] + coef(decompose_song2)['trend']*seq_along(song2)
+e <- residuals(decompose_song2)
+# Additive model is used to decompose the time series data
+seasonality <- song2 - trend - e
+components <- cbind(
+  data = song2,
+  trend = trend,
+  seasonal = seasonality,
+  residuals =e
+  )
+autoplot(components,facet=TRUE)
+ggAcf(song2)
+
+# Finding the best lambda
+(lambda <- BoxCox.lambda(song2))
+```
+
+From the ACF plot and the decomposition of the time series, we conclude that:
+\begin{enumerate}
+\item The time series is non stationary because of the significant spikes in the ACF plot.
+\item Strong trend and cyclical components, as the trend component and the exponential decreasing in the ACF support the assumption.
+\item There might be seasonality in the data, however, the short time-series we are dealing with showed no clear seasonal pattern.
+\item There is no transformation required for the data (as seasonality is not a big concern here)
+\end{enumerate}
+
+\subsection{Choosing and evaluating models}
+In this section I choose the best models to forecast the next rank of a song based on the analysis conducted in the previous section. Below all the methods used are explained with an example of a song that best fit it.\linebreak
+\textbf{Data partitioning:} leaving the last observation as test data, as we are only interested in forecasting only the next data point (short-term forecasting)
+```{r}
+train <- subset(song2, end = length(song2)-1)
+test <- subset(song2, start= length(song2))
+```
+
+\subsubsection{Holt's linear trend method:} Starting with Holt's linear trend method, as we anticipate a clear trend in the data this method is a good point to start with, setting to start the initial solution by taking the average values of the first few observations. Holt's Method makes predictions for data with a trend using two smoothing parameters, alpha, and beta which correspond to the level and trend components, respectively. Holt's method parameters (alpha and beta) are being optimized using grid search.
+```{r, warning = FALSE, message = FALSE,out.width = "50%"}
+Optimal_param <- function(data, show=FALSE){
+  train <- subset(data, end = length(data)-1)
+  validate <- subset(data, start= length(data))
+    # loop through a series of betas and alphas
+  param <- seq(.0001, 1, by = .001)
+  RMSE_beta <- NA
+  RMSE_alpha <- NA
+  for(i in seq_along(param)) {
+    fit_alpha <- holt(train, alpha = param[i], h = 1)
+    RMSE_alpha[i] <- accuracy(fit_alpha, validate)[2,2]
+    fit_beta <- holt(train, beta = param[i], h = 1)
+    RMSE_beta[i] <- accuracy(fit_beta, validate)[2,2]
+  }
+  # convert to a data frame and idenitify min alpha and beta value
+  df <- data_frame(param, RMSE_alpha, RMSE_beta)
+  alpha.opt <- filter(df, RMSE_alpha == min(RMSE_alpha)) %>% select(param,RMSE_alpha)
+  beta.opt <- filter(df, RMSE_beta == min(RMSE_beta)) %>% select(param,RMSE_beta)
+  # plot RMSE vs. alpha
+  if (show==TRUE) {
+      plot <- ggplot(df, aes(param,RMSE_alpha)) +
+        geom_line(color='blue')+
+        geom_line(aes(param,RMSE_beta),color = 'red')+
+        geom_point(data = alpha.opt, aes(param, RMSE_alpha), size = 3, color = "blue")+
+        geom_point(data = beta.opt, aes(param, RMSE_beta), size = 3, color = "Red")
+      return(plot)} else{return(list(alpha.opt,beta.opt))}
+}
+Optimal_param(song2,show=TRUE)
+```
+
+```{r, warning = FALSE, message = FALSE,out.width = "70%",echo=FALSE}
+param <- Optimal_param(song2,show=FALSE)
+Alpha <- as.numeric(param[[1]][1])
+Beta<- as.numeric(param[[2]][1])
+#Holt's linear trend method
+fit <- holt(train, alpha = Alpha ,damped = F, h =1,initial = 'optimal')
+checkresiduals(fit)
+```
+The model passes residuals check:
+\begin{enumerate}
+\item The residuals are uncorrelated(There are a few significant spikes in the ACF)
+\item The residuals have zero mean.
+\item The variation of the residuals stays much the same across the historical data, apart from the one outlier.
+\item Residuals are normal 
+\item The large negative residual is a result of the unexpected jump.
+\item The model fails the Ljung-Box test. The model can still be used for forecasting. 
+\end{enumerate}
+
+By checking the model accuracy we have about a 24.08 error according to MAPE rate and test-RMSE equals to 0.24 
+```{r,echo=FALSE}
+round(accuracy(fit, test),2)
+```
+```{r,echo=FALSE, out.width = "70%"}
+autoplot(fit) +
+  autolayer(fitted(fit), series="Holt's method") +
+  autolayer(song2, series="Data") +
+  ggtitle("Forecasts from Holt's method") + xlab("Weeks") +
+  ylab("Number of streams") +
+  guides(colour=guide_legend(title="Forecast"))
+```
+
+
+\subsubsection{Average method:} The average method was effective in forecasting time-series with few points such as the song showed bellow. The model passed residuals check as there is no enough data point to interpret it. According to MAPE we have about a 0.28 error rate and test-RMSE = 0.33
+
+```{r, warning = FALSE, message = FALSE,out.width = "70%",echo=FALSE}
+song2 <- FindSong('Gölge', 'Sancak')
+train <- subset(song2, end = length(song2)-1)
+test <- subset(song2, start= length(song2))
+fit.avg <- meanf(train, h=1)
+
+checkresiduals(fit.avg)
+round(accuracy(fit.avg, test),2)
+```
+\subsubsection{Random Walk(Naive forecast):}
+\begin{itemize}
+\item The naive forecasting method also performed well for some time-series with very short and short horizon. 
+\item In addition, Random walk model with drift also has shown well performance on some songs that has very upward/down trend which takes trend into consideration by adding the difference between this period and the last period. 
+\item The same process of residual checking and evaluation has been performed as in previous described methods, both models passed the residual checks
+\end{itemize}
+
+\subsection{Pipeline for the Rank forecast}
+The \href{https://github.com/taylankabbani/Analyzing-Spotify-top-200-songs-trend/blob/master/Rankfcast_pipeline.R}{\textcolor{blue}{Rankfcast\_pipeline.R}} run the selected models on each song and choose the best one based on RMSE. Returns an Excel file as below:
+```{r, echo=FALSE}
+RankPrediction <- read_excel("Data/Top200Prediction.xlsx")
+tail(RankPrediction)
+```
+
+
+
+\section{Stream Forecast}
+\subsection{Preliminary (exploratory) analysis}
+Same steps are being applied as in Rank Forecast.
+\subsection{Choosing and evaluating models}
+Unlike Rank forecasting in which we were only interested if the song in or out of the top list, in Stream foresting we need to apply more advanced forecasting models in order to capture the right stream counts.
+
+\subsubsection{Holt's linear trend method:} The same models (with damped trend and without) with optimizing alpha and beta parameters are applied to forecast the streams of each song. This model is particularly useful with time-series in the short group and with clear trend.
+
+\subsubsection{ETS(M,A,N):} By letting ETS automatically selecting the model, we get ETS(M,A,N), Holt's linear method with multiplicative errors. This model is assumed "optimal" because it minimizes RMSE, AIC, and BIC on the training data set, but does not necessarily minimize prediction errors on the test set.
+
+\subsubsection{ARIMA models:} Because we have a large number of time-series to work with, auto.arime() will be used to select the model rather than manually investigating the ACF and PACF to choose Arima's coefficients, to force auto.arime() to investigate larger set of models by using the arguments stepwise=FALSE and approximation=FALSE. Two types of Arima models are being used:
+\begin{itemize}
+\item \textbf{Non-seasonal ARIMA model} using the argument seasonal=FALSE to prevent it searching for seasonal ARIMA models.
+\item \textbf{Dynamic regression} Using Rank as I have examined a clear correlation between Streams and Rank of the song, as the one shown below. This prediction method is heavily dependent on the quality of the Rank prediction I performed in the last section (\textit{Ex-post forecasts})
+\end{itemize}
+
+
+```{r, warning = FALSE, message = FALSE,out.width = "70%",echo=FALSE}
+FindSong <- function(SongName, ArtistName){
+  song_Rank <- as.data.frame(SpotifyData 
+                             %>% filter(song == SongName & Artist == ArtistName) 
+                             %>% select(Date,Streams))
+
+  # ts_ts will convert df to time series
+  song_Rank <- ts_ts(ts_c(song_Rank))
+  song_Rank
+}
+song2 <- FindSong("Bil Diye Söylüyorum", "Sibel Can")
+train <- subset(song2, end = length(song2)-1)
+
+test <- subset(song2, start= length(song2))
+FindRank<- function(SongName, Artist){
+  song_Rank <- as.data.frame(SpotifyData %>% filter(song == SongName & Artist == Artist) %>% select(Date,Rank))}
+
+song2_Rank <- ts_ts(FindRank("Bil Diye Söylüyorum", "Sibel Can"))
+train_pred <- subset(song2_Rank, end = length(song2_Rank)-1)
+
+test_pred <- subset(song2_Rank, start= length(song2_Rank))
+
+song2_reg <- cbind('streams'= song2, 'rank'=song2_Rank)
+
+song2_reg %>%
+  as.data.frame() %>%
+  ggplot(aes(x=streams, y=rank)) +
+    ylab("Weekly rank in the top 200") +
+    xlab("Streams per week") +
+    geom_point() +
+    geom_smooth(method="", se=FALSE)
+```
+
+
+The following example demonstrates the effectiveness of dynamic regression with xreg= Rank, also the model passes the residuals check
+
+
+```{r, warning = FALSE, message = FALSE,out.width = "70%",echo=FALSE}
+fit.xreg <- auto.arima(train, xreg = train_pred)
+checkresiduals(fit.xreg)
+
+# one-step ahead forecast
+fcasts.xreg <- forecast(fit.xreg,xreg = test, h = 1)
+
+# Check model accuracy: According to our MAPE we have about a 5.33 error rate and test-RMSE = 78250
+round(accuracy(fcasts.xreg, test),2)
+
+
+
+autoplot(song2) +
+  autolayer(fitted(fcasts.xreg), series="xreg", PI=FALSE) +
+  autolayer(song2, series="Data", PI=FALSE) +
+  ggtitle("Forecasts from xreg") + xlab("Weeks") +
+  ylab("Number of streams") +
+  guides(colour=guide_legend(title="Forecast"))
+
+```
+
+
+\subsection{Pipeline for the Streams forecast}
+The \href{https://github.com/taylankabbani/Analyzing-Spotify-top-200-songs-trend/blob/master/Streamfcast_pipeline.R}{\textcolor{blue}{Streamfcast\_pipeline.R}} run the selected models on each song and choose the best one based on RMSE. Returns an Excel file as below:
+```{r, echo=FALSE}
+RankPrediction <- read_excel("Data/Streamfcast.xlsx")
+tail(RankPrediction)
+```
+
+\textcolor{red}{Note:} There has been some songs could not be handled by the pipeline mainly because they have very little data points(3 weeks) or because the \textit{ts\_ts()} failed to detect a pattern for the time-series due to duplicated entries. These sons(20 out of 200) will be handled manually, in addition to those that has high RMSE. For example this song shows no regular patter: 
+
+
+```{r,echo=FALSE,out.width = "50%"}
+FindSong <- function(SongName, ArtistName){
+  song_streams <- as.data.frame(SpotifyData %>% filter(song == SongName & Artist == ArtistName)
+                               %>% select(Streams))
+  song_streams}
+song2 <- FindSong("Yapma N'olursun", "Dolu Kadehi Ters Tut")
+song2 <- ts(song2,frequency = 52)
+autoplot(song2)
+```
+Therefore, it been processed manually by only considering data point after the irregular pattern and the next point is foretasted using naive method with taking the trend into consideration $Y_{t+1} = Y_{t} + (Y_{t} -Y_{t-1}$
+```{r,out.width = "50%",echo=FALSE}
+FindSong <- function(SongName, ArtistName){
+  song_streams <- as.data.frame(SpotifyData %>% filter(song == SongName & Artist == ArtistName)
+                               %>% select(Date,Streams))
+  song_streams <- song_streams[116:143,1:2]
+  # ts_ts will convert df to time series
+  song_streams <- ts_ts(song_streams)
+  song_streams
+}
+song2 <- FindSong("Yapma N'olursun", "Dolu Kadehi Ters Tut")
+autoplot(song2)
+```
+
